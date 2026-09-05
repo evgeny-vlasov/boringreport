@@ -1,0 +1,92 @@
+# Boring Report V1
+
+Boring Report is a deterministic bilingual infographic renderer and historical issue archive. One canonical `issue.json` is validated and rendered by R into matching English and Russian SVG and PNG views. There is no preprocessing, intermediate image, manual compositing, or postprocessing.
+
+## Archive contract
+
+Every completed issue is intentionally preserved in the repository:
+
+```text
+data/issues/YYYY-MM-DD/
+  issue.json          Canonical historical research data
+  report-en.html      English publication view
+  report-ru.html      Russian publication view
+  telegram-ru.html    Russian Telegram publication view
+
+output/YYYY-MM-DD/
+  boring-report-en.svg
+  boring-report-en.png
+  boring-report-ru.svg
+  boring-report-ru.png
+```
+
+Research JSON is the source of truth for historical and future meta-analysis. HTML files are publication views. SVG and PNG files are generated visualization views. Completed issue directories and their generated publication assets are committed as the canonical archive; they are not transient build products.
+
+## Canonical issue data
+
+The current schema version is `1.0`. Top-level fields identify the issue and reporting window, hold bilingual publication metadata, record whether the research framework changed, and contain the complete `events` array. Candidate, published, filtered, and watchlist counts are never stored separately: validation and rendering derive them from event records.
+
+Each event has a unique issue-local `id` and stable longitudinal `event_key`, status, category, dates, actors, bilingual analytical fields, confidence, sources, relationships, follow-up status, and published ordering. Supported statuses are `published`, `filtered`, and `watchlist`; supported follow-up states are `none`, `watch`, `resolved`, and `superseded`. Fields without established research content remain `null` or empty arrays.
+
+Locations are honest geographic records:
+
+- `type: "point"` requires valid WGS84 `lat` and `lon` values.
+- `type: "region"` is valid without coordinates and is omitted from point plotting.
+
+Each source is a structured object with `type`, `publisher`, `title`, HTTPS `url`, and `published_at`. Unknown fields are validation errors, so weekly data cannot silently alter renderer behavior. Every plotted marker must derive from an event point; decorative markers are prohibited.
+
+## Fixed palette
+
+The project palette is defined only in `scripts/render_report.R` and cannot be overridden by an issue:
+
+```r
+ink <- "#17212B"
+muted <- "#66717C"
+paper <- "#F7F8F6"
+land <- "#DDE2E1"
+ocean <- "#EDF2F3"
+rule <- "#AAB2B5"
+published_colour <- "#164B70"
+filtered_colour <- "#9B4B42"
+```
+
+There are no palette or theme variants in V1.
+
+## Requirements
+
+The first archived issue is tested with R 4.2.2 and these package versions:
+
+- `ggplot2` 4.0.3
+- `sf` 1.1.2
+- `rnaturalearth` 1.2.0
+- `rnaturalearthdata` 1.0.0
+- `dplyr` 1.2.1
+- `jsonlite` 2.0.0
+- `ggrepel` 0.9.8
+- `patchwork` 1.3.2
+- `svglite` 2.2.2
+- `ragg` 1.5.2
+- `stringr` 1.6.0
+- `systemfonts` 1.3.2
+
+DejaVu Sans or Liberation Sans must be installed with Latin and Cyrillic coverage. Natural Earth geometry is loaded from the installed R packages; rendering does not download assets.
+
+## Validate
+
+From the repository root:
+
+```bash
+Rscript scripts/validate_issue.R data/issues/2026-09-01/issue.json
+```
+
+Validation failures return a non-zero exit code with field-specific messages. The renderer sources the same validation implementation before reading data into the plotting layer.
+
+## Render
+
+```bash
+Rscript scripts/render_report.R \
+  data/issues/2026-09-01/issue.json \
+  output/2026-09-01/
+```
+
+`scripts/render_report.R` is the only rendering implementation. It passes the same R plot composition to `svglite::svglite` for the canonical SVG master and `ragg::agg_png` for a direct 2400 × 1350 PNG render. No non-R image processing occurs.
