@@ -90,3 +90,25 @@ Rscript scripts/render_report.R \
 ```
 
 `scripts/render_report.R` is the only rendering implementation. It passes the same R plot composition to `svglite::svglite` for the canonical SVG master and `ragg::agg_png` for a direct 2400 × 1350 PNG render. No non-R image processing occurs.
+
+## Continuous integration
+
+The `Render Boring Report issue` workflow runs on pushes that change `data/issues/**`. V1 accepts exactly one changed `YYYY-MM-DD` issue directory per push and fails clearly if a push changes more than one. Changes confined to `output/**` do not trigger the workflow.
+
+Pull requests that change the workflow, `scripts/**`, the canonical `data/issues/2026-09-01/**` fixture, or this README always validate and render issue `2026-09-01`. The PR job uploads its artifact before comparing all four rendered hashes with the committed canonical outputs. It has read-only repository permission and never commits generated files.
+
+For a manual render, open **Actions → Render Boring Report issue → Run workflow** and enter the issue directory name, for example `2026-09-01`. Manual runs validate, render, verify, and upload an artifact, but do not commit generated files.
+
+The workflow uses the same commands as local production:
+
+```bash
+Rscript scripts/validate_issue.R data/issues/2026-09-01/issue.json
+
+Rscript scripts/render_report.R \
+  data/issues/2026-09-01/issue.json \
+  output/2026-09-01/
+```
+
+Validation must pass before rendering. Output checks require all four non-empty files, valid SVG documents, and two PNGs measuring exactly 2400 × 1350. Successful push runs use a separate write-enabled job to commit only the four files under `output/<ISSUE>/` back to the same branch with a `build: render Boring Report <ISSUE>` commit; unchanged renders produce no commit. Output-only commits cannot retrigger this path-filtered workflow.
+
+Each successful run uploads `boring-report-<ISSUE>` containing `issue.json`, `report-en.html`, `report-ru.html`, `telegram-ru.html`, and both English and Russian SVG/PNG renders. Validation, rendering, QA, or canonical V1 regression failures stop the job before any output commit.
