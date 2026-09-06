@@ -343,6 +343,7 @@ jobs:
         if: steps.issue.outputs.issue == '2026-09-01'
         run: |
           set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           files=(
             output/2026-09-01/boring-report-en.svg
             output/2026-09-01/boring-report-en.png
