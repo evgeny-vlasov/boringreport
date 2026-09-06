@@ -90,3 +90,27 @@ Rscript scripts/render_report.R \
 ```
 
 `scripts/render_report.R` is the only rendering implementation. It passes the same R plot composition to `svglite::svglite` for the canonical SVG master and `ragg::agg_png` for a direct 2400 × 1350 PNG render. No non-R image processing occurs.
+
+## Continuous integration
+
+The `Render Boring Report issue` workflow runs on pushes that change `data/issues/**`. V1 accepts exactly one changed `YYYY-MM-DD` issue directory per push and fails clearly if a push changes more than one. Changes confined to `output/**` do not trigger the workflow.
+
+Rendering runs on a GitHub-hosted Ubuntu runner with R 4.2.2 and the R package versions listed above. The workflow caches R packages and verifies the installed package versions plus DejaVu Sans Latin/Cyrillic availability before rendering.
+
+Pull requests that change the workflow, `scripts/**`, the canonical `data/issues/2026-09-01/**` fixture, or this README always validate and render issue `2026-09-01`. The PR job has read-only repository permission, uploads its artifact, and never commits generated files. It logs all four rendered and committed canonical SHA-256 hashes for diagnostics only; harmless cross-platform typography differences do not fail CI.
+
+For a manual render, open **Actions → Render Boring Report issue → Run workflow** and enter the issue directory name, for example `2026-09-01`. Manual runs validate, render, verify, and upload an artifact, but do not commit generated files.
+
+The workflow uses the same commands as local production:
+
+```bash
+Rscript scripts/validate_issue.R data/issues/2026-09-01/issue.json
+
+Rscript scripts/render_report.R \
+  data/issues/2026-09-01/issue.json \
+  output/2026-09-01/
+```
+
+Validation must pass before rendering. Output checks require all four non-empty files, valid SVG documents, and two PNGs measuring exactly 2400 × 1350. Successful push runs use a separate write-enabled job to commit only the four files under `output/<ISSUE>/` back to the same branch with a `build: render Boring Report <ISSUE>` commit; unchanged renders produce no commit. Output-only commits cannot retrigger this path-filtered workflow.
+
+Each successful run uploads `boring-report-<ISSUE>` containing `issue.json`, `report-en.html`, `report-ru.html`, `telegram-ru.html`, and both English and Russian SVG/PNG renders. Missing package files, validation failures, rendering failures, or output QA failures stop the job before any output commit.
