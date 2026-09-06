@@ -95,6 +95,8 @@ Rscript scripts/render_report.R \
 
 The `Render Boring Report issue` workflow runs on pushes that change `data/issues/**`. V1 accepts exactly one changed `YYYY-MM-DD` issue directory per push and fails clearly if a push changes more than one. Changes confined to `output/**` do not trigger the workflow.
 
+Rendering runs inside the immutable Debian 12.12 container `debian:12.12-slim@sha256:d5d3f9c23164ea16f31852f95bd5959aad1c5e854332fe00f7b3a20fcc9f635c`. R and native graphics/font libraries come from the pinned `20260906T000000Z` Debian Bookworm snapshot. The job verifies the canonical R/package versions and DejaVu Sans file hash before rendering.
+
 Pull requests that change the workflow, `scripts/**`, the canonical `data/issues/2026-09-01/**` fixture, or this README always validate and render issue `2026-09-01`. The PR job uploads its artifact before comparing all four rendered hashes with the committed canonical outputs. It has read-only repository permission and never commits generated files.
 
 For a manual render, open **Actions → Render Boring Report issue → Run workflow** and enter the issue directory name, for example `2026-09-01`. Manual runs validate, render, verify, and upload an artifact, but do not commit generated files.
