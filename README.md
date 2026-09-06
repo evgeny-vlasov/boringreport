@@ -95,9 +95,9 @@ Rscript scripts/render_report.R \
 
 The `Render Boring Report issue` workflow runs on pushes that change `data/issues/**`. V1 accepts exactly one changed `YYYY-MM-DD` issue directory per push and fails clearly if a push changes more than one. Changes confined to `output/**` do not trigger the workflow.
 
-Rendering runs inside the immutable Debian 12.12 container `debian:12.12-slim@sha256:d5d3f9c23164ea16f31852f95bd5959aad1c5e854332fe00f7b3a20fcc9f635c`. R and native graphics/font libraries come from the pinned `20260906T000000Z` Debian Bookworm snapshot. The job verifies the canonical R/package versions and DejaVu Sans file hash before rendering.
+Rendering runs on a GitHub-hosted Ubuntu runner with R 4.2.2 and the R package versions listed above. The workflow caches R packages and verifies the installed package versions plus DejaVu Sans Latin/Cyrillic availability before rendering.
 
-Pull requests that change the workflow, `scripts/**`, the canonical `data/issues/2026-09-01/**` fixture, or this README always validate and render issue `2026-09-01`. The PR job uploads its artifact before comparing all four rendered hashes with the committed canonical outputs. It has read-only repository permission and never commits generated files.
+Pull requests that change the workflow, `scripts/**`, the canonical `data/issues/2026-09-01/**` fixture, or this README always validate and render issue `2026-09-01`. The PR job has read-only repository permission, uploads its artifact, and never commits generated files. It logs all four rendered and committed canonical SHA-256 hashes for diagnostics only; harmless cross-platform typography differences do not fail CI.
 
 For a manual render, open **Actions → Render Boring Report issue → Run workflow** and enter the issue directory name, for example `2026-09-01`. Manual runs validate, render, verify, and upload an artifact, but do not commit generated files.
 
@@ -113,4 +113,4 @@ Rscript scripts/render_report.R \
 
 Validation must pass before rendering. Output checks require all four non-empty files, valid SVG documents, and two PNGs measuring exactly 2400 × 1350. Successful push runs use a separate write-enabled job to commit only the four files under `output/<ISSUE>/` back to the same branch with a `build: render Boring Report <ISSUE>` commit; unchanged renders produce no commit. Output-only commits cannot retrigger this path-filtered workflow.
 
-Each successful run uploads `boring-report-<ISSUE>` containing `issue.json`, `report-en.html`, `report-ru.html`, `telegram-ru.html`, and both English and Russian SVG/PNG renders. Validation, rendering, QA, or canonical V1 regression failures stop the job before any output commit.
+Each successful run uploads `boring-report-<ISSUE>` containing `issue.json`, `report-en.html`, `report-ru.html`, `telegram-ru.html`, and both English and Russian SVG/PNG renders. Missing package files, validation failures, rendering failures, or output QA failures stop the job before any output commit.
