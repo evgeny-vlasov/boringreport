@@ -67,9 +67,10 @@ class Setup(http.server.BaseHTTPRequestHandler):
         print('Bot connection verified:',me['username'],'channel:',config['channel'],flush=True)
         self.server.finished = True
 
-server = http.server.HTTPServer(('127.0.0.1',8766),Setup)
+server = http.server.ThreadingHTTPServer(('127.0.0.1',8766),Setup)
 server.finished = False
-server.timeout = 600
+server.timeout = 1
 print('Open this secure local setup page: http://localhost:8766'+route,flush=True)
 while not server.finished:
     server.handle_request()
+server.server_close()
