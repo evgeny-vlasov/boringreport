@@ -321,7 +321,7 @@ make_footer <- function(lang) {
   panel +
     annotate("text", x = 0, y = 0.18, label = bottom_line, hjust = 0, vjust = 0.5,
              family = font_family, fontface = "bold", size = if (lang == "ru") 3.2 else 3.45, colour = ink) +
-    annotate("text", x = 1, y = 0.04, label = t$representative, hjust = 1, vjust = 0.5,
+    annotate("text", x = 1, y = 0.04, label = if ("cn-didi-r2-trials" %in% points$id) t$representative else "", hjust = 1, vjust = 0.5,
              family = font_family, size = 2.25, colour = muted) +
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off") + base_theme +
     theme(plot.margin = margin(4, 20, 10, 20))
