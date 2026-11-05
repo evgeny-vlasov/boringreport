@@ -43,14 +43,16 @@ candidates_raw <- validated$events
 candidate_row <- function(candidate, index) {
   location <- candidate$location
   is_point <- identical(location$type, "point")
+  reference <- location$map_reference
+  has_reference <- identical(location$type, "region") && !is.null(reference)
 
   data.frame(
     id = candidate$id,
     status = candidate$status,
     category = candidate$category,
     location_type = location$type,
-    longitude = if (is_point) as.numeric(location$lon) else NA_real_,
-    latitude = if (is_point) as.numeric(location$lat) else NA_real_,
+    longitude = if (is_point) as.numeric(location$lon) else if (has_reference) as.numeric(reference$lon) else NA_real_,
+    latitude = if (is_point) as.numeric(location$lat) else if (has_reference) as.numeric(reference$lat) else NA_real_,
     location_en = if (is.null(location$name_en)) location$name else location$name_en,
     location_ru = if (is.null(location$name_ru)) location$name else location$name_ru,
     label_en = candidate$headline_en,
@@ -100,7 +102,10 @@ world <- rnaturalearth::ne_countries(scale = "small", returnclass = "sf") %>%
   filter(continent != "Antarctica") %>%
   st_transform(projection)
 
-mappable_candidates <- candidates %>% filter(location_type == "point")
+mappable_candidates <- candidates %>% filter(is.finite(longitude), is.finite(latitude))
+if (!nrow(mappable_candidates)) {
+  fail("No mappable events: supply verified point locations or sourced regional map_reference anchors; an empty event map cannot be published.")
+}
 if (nrow(mappable_candidates)) {
   points_sf <- st_as_sf(mappable_candidates, coords = c("longitude", "latitude"), crs = 4326, remove = FALSE) %>%
     st_transform(projection)
@@ -109,6 +114,9 @@ if (nrow(mappable_candidates)) {
 } else {
   points <- mappable_candidates %>% mutate(x = numeric(), y = numeric())
 }
+has_regional_markers <- any(points$location_type == "region")
+message(sprintf("Map QA: %d markers (%d precise, %d regional references).", nrow(points),
+                sum(points$location_type == "point"), sum(points$location_type == "region")))
 
 world_box <- st_bbox(world)
 map_xlim <- c(world_box[["xmin"]], world_box[["xmax"]])
@@ -131,7 +139,8 @@ language_text <- list(
     watchlist = "FILTERED / WATCHLIST",
     legend_published = "NUMBERED / PUBLISHED",
     legend_filtered = "CROSS / FILTERED",
-    representative = "Beijing marker represents trials also announced for Guangzhou."
+    representative = "Beijing marker represents trials also announced for Guangzhou.",
+    regional_note = "Open numbered circles = regional reference locations, not exact sites. Crosses = filtered / watchlist."
   ),
   ru = list(
     issue = "ВЫПУСК",
@@ -142,7 +151,8 @@ language_text <- list(
     watchlist = "ФИЛЬТР / ЛИСТ НАБЛЮДЕНИЯ",
     legend_published = "НОМЕР / ОПУБЛИКОВАНО",
     legend_filtered = "КРЕСТ / ОТФИЛЬТРОВАНО",
-    representative = "Маркер Пекина также представляет испытания, заявленные для Гуанчжоу."
+    representative = "Маркер Пекина также представляет испытания, заявленные для Гуанчжоу.",
+    regional_note = "Полые круги с номерами — ориентиры регионов, не точные места. Кресты — фильтр / наблюдение."
   )
 )
 
@@ -201,14 +211,36 @@ make_map <- function(lang) {
   filt$nudge_x[is.na(filt$nudge_x)] <- 0
   filt$nudge_y[is.na(filt$nudge_y)] <- 0
 
-  ggplot() +
+  map <- ggplot() +
     geom_sf(data = world, fill = land, colour = "#8C989B", linewidth = 0.18) +
     geom_point(data = filt, aes(x = x, y = y), shape = 4, size = 4.2,
                stroke = 1.25, colour = filtered_colour) +
-    geom_point(data = pub, aes(x = x, y = y), shape = 21, size = 6.6,
+    geom_point(data = pub %>% filter(location_type == "point"), aes(x = x, y = y), shape = 21, size = 6.6,
                stroke = 1.15, fill = published_colour, colour = paper) +
-    geom_text(data = pub, aes(x = x, y = y, label = published_order),
+    geom_point(data = pub %>% filter(location_type == "region"), aes(x = x, y = y), shape = 21, size = 6.6,
+               stroke = 1.15, fill = paper, colour = published_colour) +
+    geom_text(data = pub %>% filter(location_type == "point"), aes(x = x, y = y, label = published_order),
               family = font_family, fontface = "bold", size = 3.25, colour = "white") +
+    geom_text(data = pub %>% filter(location_type == "region"), aes(x = x, y = y, label = published_order),
+              family = font_family, fontface = "bold", size = 3.25, colour = published_colour)
+  if (has_regional_markers) {
+    labels <- bind_rows(pub, filt)
+    labels$display_label <- ifelse(labels$status == "published",
+                                  paste0(labels$published_order, ". ", labels$display_label),
+                                  paste0("× ", labels$display_label))
+    labels$label_colour <- ifelse(labels$status == "published", published_colour, filtered_colour)
+    map <- map + ggrepel::geom_label_repel(
+      data = labels, aes(x = x, y = y, label = display_label, colour = I(label_colour)),
+      family = font_family, fontface = "bold", size = 3.1,
+      fill = paper, box.padding = 0.7, point.padding = 0.7,
+      label.padding = unit(0.18, "lines"), label.r = unit(0, "lines"),
+      label.size = 0.25, segment.colour = muted, segment.size = 0.35,
+      min.segment.length = 0, seed = 20260901, max.overlaps = Inf,
+      force = 3, max.time = Inf, max.iter = 10000,
+      nudge_x = labels$nudge_x, nudge_y = labels$nudge_y
+    )
+  } else {
+    map <- map +
     ggrepel::geom_label_repel(
       data = pub,
       aes(x = x, y = y, label = display_label),
@@ -230,8 +262,9 @@ make_map <- function(lang) {
       min.segment.length = 0, seed = 20260901, max.overlaps = Inf,
       force = 2.6, max.time = Inf, max.iter = 10000,
       nudge_x = filt$nudge_x, nudge_y = filt$nudge_y
-    ) +
-    coord_sf(crs = projection, xlim = map_xlim, ylim = map_ylim, expand = FALSE, datum = NA) +
+    )
+  }
+  map + coord_sf(crs = projection, xlim = map_xlim, ylim = map_ylim, expand = FALSE, datum = NA) +
     base_theme +
     theme(
       panel.background = element_rect(fill = ocean, colour = ink, linewidth = 0.45),
@@ -321,7 +354,7 @@ make_footer <- function(lang) {
   panel +
     annotate("text", x = 0, y = 0.18, label = bottom_line, hjust = 0, vjust = 0.5,
              family = font_family, fontface = "bold", size = if (lang == "ru") 3.2 else 3.45, colour = ink) +
-    annotate("text", x = 1, y = 0.04, label = if ("cn-didi-r2-trials" %in% points$id) t$representative else "", hjust = 1, vjust = 0.5,
+    annotate("text", x = 1, y = 0.04, label = if (has_regional_markers) t$regional_note else if ("cn-didi-r2-trials" %in% points$id) t$representative else "", hjust = 1, vjust = 0.5,
              family = font_family, size = 2.25, colour = muted) +
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off") + base_theme +
     theme(plot.margin = margin(4, 20, 10, 20))

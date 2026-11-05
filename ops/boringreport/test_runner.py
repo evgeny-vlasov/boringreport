@@ -20,7 +20,7 @@ class RunnerTest(unittest.TestCase):
             package = root / 'data/issues' / issue
             package.mkdir(parents=True)
             (package / 'issue.json').write_text('{}')
-            content = dict(issue_json=json.dumps({'issue_id':issue}), report_en='en', report_ru='ru', telegram_ru='tg')
+            content = dict(issue_json=json.dumps({'issue_id':issue,'events':[{'location':{'type':'point'}}]}), report_en='en', report_ru='ru', telegram_ru='tg')
             (state / f'{issue}.package.json').write_text(json.dumps(content))
             outputs = root / 'output' / issue
             outputs.mkdir(parents=True)

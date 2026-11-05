@@ -128,7 +128,7 @@ validate_issue <- function(path) {
   )
   status_values <- c("published", "filtered", "watchlist")
   follow_up_values <- c("none", "watch", "resolved", "superseded")
-  location_fields <- c("type", "name", "name_en", "name_ru", "lat", "lon", "note_en", "note_ru")
+  location_fields <- c("type", "name", "name_en", "name_ru", "lat", "lon", "note_en", "note_ru", "map_reference")
   source_fields <- c("type", "publisher", "title", "url", "published_at")
 
   ids <- character()
@@ -214,6 +214,30 @@ validate_issue <- function(path) {
       if (identical(location$type, "region") &&
           ((!is.null(location$lat) && length(location$lat)) || (!is.null(location$lon) && length(location$lon)))) {
         add_error("%s region location must not claim point coordinates.", context)
+      }
+      if (!is.null(location$map_reference)) {
+        reference <- location$map_reference
+        reference_context <- paste0(context, ".location.map_reference")
+        if (!identical(location$type, "region")) {
+          add_error("%s is only allowed for region locations.", reference_context)
+        }
+        if (!is.list(reference)) {
+          add_error("%s must be an object.", reference_context)
+        } else {
+          reject_unknown(reference, c("name_en", "name_ru", "lat", "lon", "source_url"), reference_context)
+          for (field in c("name_en", "name_ru", "source_url")) require_text(reference, field, reference_context)
+          for (field in c("lat", "lon")) {
+            limit <- if (field == "lat") 90 else 180
+            value <- reference[[field]]
+            if (!is.numeric(value) || length(value) != 1L || !is.finite(value) || abs(value) > limit) {
+              add_error("%s.%s must be a finite WGS84 coordinate within +/- %d.", reference_context, field, limit)
+            }
+          }
+          if (is_scalar_string(reference$source_url) && !grepl("^https://", reference$source_url)) {
+            add_error("%s.source_url must be an HTTPS URL.", reference_context)
+          }
+          check_ru(reference$name_ru, paste0(reference_context, ".name_ru"))
+        }
       }
       if ("name_ru" %in% names(location)) check_ru(location$name_ru, paste0(context, ".location.name_ru"))
       if ("note_ru" %in% names(location)) check_ru(location$note_ru, paste0(context, ".location.note_ru"))

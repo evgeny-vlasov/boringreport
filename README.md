@@ -31,7 +31,9 @@ Each event has a unique issue-local `id` and stable longitudinal `event_key`, st
 Locations are honest geographic records:
 
 - `type: "point"` requires valid WGS84 `lat` and `lon` values.
-- `type: "region"` is valid without coordinates and is omitted from point plotting.
+- `type: "region"` keeps `lat` and `lon` null. An optional `map_reference` object supplies a sourced geographic reference for plotting without claiming an exact event site. Its required fields are `name_en`, `name_ru`, `lat`, `lon`, and HTTPS `source_url`.
+- Regional published markers are open numbered circles; precise published sites remain filled circles. The map caption explains regional references. Source geometry and event coordinates are never guessed just to populate a map.
+- Rendering fails if no event has a verified point location or a regional map reference. The server preparation runner treats an empty map as a repairable package error before rendering.
 
 Each source is a structured object with `type`, `publisher`, `title`, HTTPS `url`, and `published_at`. Unknown fields are validation errors, so weekly data cannot silently alter renderer behavior. Every plotted marker must derive from an event point; decorative markers are prohibited.
 

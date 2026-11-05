@@ -50,3 +50,9 @@ systemctl --user enable --now boringreport-prepare.timer boringreport-deliver.ti
 ```
 
 Source changes require reinstalling the runtime copy; scheduled runs do not automatically install code from Git pulls. Tests can run with `python3 ops/boringreport/test_runner.py` on Linux.
+
+## Geographic QA
+
+Regional events retain null event-site coordinates and can carry a separately sourced `location.map_reference`. The research prompt requests these references; validation checks coordinate bounds and provenance fields. Preparation retries a generated package with no mappable events, and the renderer independently refuses an empty map. Regional numbered markers are open and explicitly described as reference locations. This does not claim precise deployment coordinates.
+
+Run `python3 ops/boringreport/test_map.py` to check regional-reference validation and empty-map rejection. The original 2026-09-01 fixture was rendered before and after this change and all four files remained byte-identical.
