@@ -4,6 +4,7 @@ import argparse
 import datetime as dt
 import fcntl
 import hashlib
+from html import escape, unescape
 from html.parser import HTMLParser
 import json
 import os
@@ -11,6 +12,7 @@ from pathlib import Path
 import re
 import secrets
 import subprocess
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,6 +21,7 @@ ROOT = Path('/home/fluffy/projects/boringreport-service')
 CONFIG_DIR = Path.home() / '.config/boringreport'
 STATE = Path.home() / '.local/state/boringreport'
 PUBLIC_REPO = 'evgeny-vlasov/boringreport'
+POST_FORMAT = 'four-posts-v1'
 
 class APIError(RuntimeError):
     pass
@@ -240,19 +243,84 @@ def prepare(issue):
         live = telegraph('getPage',{'path':article['path'],'return_content':True})
         if canonical_nodes(live.get('content',[])) != canonical_nodes(nodes):
             raise ValueError('Telegraph page does not match the prepared article.')
-    record['preview'] = preview(data,record)
+    record['preview'] = preview(data,record,(package/'telegram-ru.html').read_text())
     save(record_path,record)
-    print(json.dumps({'issue':issue,'articles':{lang:a['url'] for lang,a in record['articles'].items()},'channel_caption':record['preview']['caption_ru']},ensure_ascii=False,indent=2))
+    print(json.dumps({'issue':issue,'articles':{lang:a['url'] for lang,a in record['articles'].items()},'channel_posts':record['preview']['posts']},ensure_ascii=False,indent=2))
     return record
 
-def preview(data,record):
-    values = {}
-    for lang in ['ru','en']:
-        caption = f'Boring Report №{data["issue_number"]:02d}\n{data["date_display_"+lang]}\n\n{data["bottom_line_"+lang]}\n\n' + ('Читать: ' if lang=='ru' else 'Read: ') + record['articles'][lang]['url']
-        if len(caption)>1024:
-            raise ValueError('Telegram caption exceeds 1024 characters.')
-        values['caption_'+lang] = caption
-    return values
+def telegram_text(source):
+    """Keep the prepared Russian message and links, translating block HTML to Telegram HTML."""
+    parser = ArticleParser()
+    parser.feed(source)
+    inline = {'b','strong','i','em','u','s','code','pre','blockquote'}
+    def render(nodes):
+        parts = []
+        for node in nodes:
+            if isinstance(node,str):
+                parts.append(escape(re.sub(r'\s+',' ',node),quote=False))
+                continue
+            tag = node['tag']
+            content = render(node.get('children',[]))
+            if tag in inline:
+                parts.append(f'<{tag}>{content}</{tag}>')
+            elif tag == 'a' and node.get('attrs',{}).get('href'):
+                parts.append('<a href="'+escape(node['attrs']['href'],quote=True)+'">'+content+'</a>')
+            elif tag == 'br':
+                parts.append('\n')
+            elif tag == 'li':
+                parts.append('• '+content.strip()+'\n')
+            elif tag in {'h3','h4'}:
+                parts.append('<b>'+content.strip()+'</b>\n\n')
+            elif tag in {'p','aside','ul','ol'}:
+                parts.append(content.strip()+'\n\n')
+            elif tag not in {'img','video','figure','figcaption'}:
+                parts.append(content)
+        return ''.join(parts)
+    rendered = re.sub(r'(?m)^[ \t]+|[ \t]+$','',render(parser.nodes))
+    text = re.sub(r'\n[ \t]*\n(?:[ \t]*\n)*','\n\n',rendered).strip()
+    if not text:
+        raise ValueError('The Russian Telegram message is empty.')
+    return text
+
+def visible_length(text):
+    plain = unescape(re.sub(r'<[^>]*>','',text))
+    return len(plain.encode('utf-16-le'))//2
+
+def preview(data,record,source):
+    date = dt.date.fromisoformat(data['issue_id'])
+    title_ru = f'Boring Report №{data["issue_number"]:02d} — {date.strftime("%d.%m.%Y")}'
+    title_en = f'Boring Report №{data["issue_number"]:02d} — {date.strftime("%d %b %Y")}'
+    message = telegram_text(source)
+    def link_text(lang,title,subtitle):
+        url = record['articles'][lang]['url']
+        if not url.startswith('https://telegra.ph/'):
+            raise ValueError('Unexpected article URL.')
+        return '<b><a href="'+escape(url,quote=True)+'">'+escape(title)+'</a></b>\n'+subtitle
+    def text_post(key,text):
+        if visible_length(text)>4096:
+            raise ValueError(f'{key} exceeds Telegram\'s single-message limit; shorten its source before publishing.')
+        return {'key':key,'method':'sendMessage','data':{'text':text,'parse_mode':'HTML','link_preview_options':{'is_disabled':True}}}
+    return {'format':POST_FORMAT,'posts':[
+        {'key':'ru_image','method':'sendPhoto','data':{'caption':title_ru},'files':{'photo':f'output/{data["issue_id"]}/boring-report-ru.png'}},
+        text_post('ru_message',message),
+        text_post('ru_article',link_text('ru',title_ru,'Полный выпуск · Русский')),
+        text_post('en_article',link_text('en',title_en,'Full report · English')),
+    ]}
+
+def validate_plan(plan):
+    fingerprint = []
+    for step in plan['posts']:
+        hashes = {}
+        for name,relative in step.get('files',{}).items():
+            path = ROOT/relative
+            data = path.read_bytes()
+            if not data.startswith(b'\x89PNG\r\n\x1a\n') or len(data)>10*1024*1024:
+                raise ValueError('Invalid or oversized Telegram photo.')
+            hashes[name] = hashlib.sha256(data).hexdigest()
+        if step['method'] == 'sendMessage' and visible_length(step['data']['text'])>4096:
+            raise ValueError('Oversized Telegram message.')
+        fingerprint.append({'step':step,'file_hashes':hashes})
+    return hashlib.sha256(json.dumps(fingerprint,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
 
 def publish(issue,config,scheduled=False):
     if scheduled and (not config.get('enabled') or config.get('mode') != 'auto'):
@@ -261,7 +329,7 @@ def publish(issue,config,scheduled=False):
     # Check known delivery state before changing an article or attempting a send.
     record_path = STATE / f'{issue}.publication.json'
     prior = json.loads(record_path.read_text()) if record_path.exists() else {}
-    if prior.get('telegram',{}).get('status') == 'sent':
+    if prior.get('telegram',{}).get('status') == 'sent' or prior.get('telegram',{}).get('removed_by_owner_request'):
         print('Channel post already recorded; no duplicate sent.')
         return
     if prior.get('telegram',{}).get('status') in ['in_flight','uncertain']:
@@ -271,31 +339,48 @@ def publish(issue,config,scheduled=False):
         config['channel_id'] = chat['id']
         save(CONFIG_DIR/'publishing.json',config)
     record = prepare(issue)
-    media, files = [], {}
-    for lang in ['ru','en']:
-        path = ROOT / 'output' / issue / f'boring-report-{lang}.png'
-        if not path.read_bytes().startswith(b'\x89PNG\r\n\x1a\n') or path.stat().st_size > 10*1024*1024:
-            raise ValueError('Invalid or oversized Telegram photo.')
-        name = 'photo_'+lang
-        files[name] = path
-        media.append({'type':'photo','media':'attach://'+name,'caption':record['preview']['caption_'+lang]})
-    record['telegram'] = {'status':'in_flight','channel_id':chat['id'],'bot_id':me['id']}
-    save(record_path,record)
-    try:
-        messages = telegram('sendMediaGroup', {'chat_id':str(chat['id']),'media':json.dumps(media,ensure_ascii=False)},files)
-    except APIError:
-        record['telegram']['status'] = 'rejected'
+    plan = record['preview']
+    fingerprint = validate_plan(plan)  # Validate all four posts before sending the first.
+    delivery = record.get('telegram',{})
+    if delivery.get('message_ids') and delivery.get('format') != POST_FORMAT:
+        raise UncertainRequest('A partial older-format publication needs operator review.')
+    if delivery.get('plan_hash') and delivery['plan_hash'] != fingerprint:
+        raise UncertainRequest('The post content changed during a partial publication; inspect it before resuming.')
+    if delivery.get('channel_id') and delivery['channel_id'] != chat['id']:
+        raise UncertainRequest('The destination changed during publication.')
+    delivery.update(format=POST_FORMAT,channel_id=chat['id'],bot_id=me['id'],plan_hash=fingerprint)
+    delivery.setdefault('posts',{})
+    record['telegram'] = delivery
+    for step in plan['posts']:
+        post = delivery['posts'].setdefault(step['key'],{})
+        if post.get('status') == 'sent':
+            continue
+        if post.get('status') in ['in_flight','uncertain']:
+            raise UncertainRequest('A previous post has an unknown outcome; inspect the channel before retrying.')
+        post['status'] = delivery['status'] = 'in_flight'
         save(record_path,record)
-        raise
-    except Exception:
-        record['telegram']['status'] = 'uncertain'
+        files = {name:ROOT/path for name,path in step.get('files',{}).items()} or None
+        try:
+            result = telegram(step['method'],{'chat_id':str(chat['id']),**step['data']},files)
+            if not isinstance(result,dict) or result.get('chat',{}).get('id') != chat['id'] or not result.get('message_id'):
+                raise UncertainRequest('Unexpected Telegram delivery response; inspect the channel.')
+        except APIError:
+            post['status'],delivery['status'] = 'rejected','partial'
+            save(record_path,record)
+            raise
+        except Exception:
+            post['status'] = delivery['status'] = 'uncertain'
+            save(record_path,record)
+            raise
+        post.update(status='sent',message_id=result['message_id'])
+        delivery['message_ids'] = [delivery['posts'][s['key']]['message_id'] for s in plan['posts'] if delivery['posts'].get(s['key'],{}).get('status') == 'sent']
+        delivery['status'] = 'partial'
         save(record_path,record)
-        raise
-    if len(messages) != 2 or any(message['chat']['id'] != chat['id'] for message in messages):
-        raise UncertainRequest('Unexpected Telegram delivery response; inspect the channel.')
-    record['telegram'].update(status='sent',message_ids=[m['message_id'] for m in messages],sent_at=dt.datetime.now(dt.timezone.utc).isoformat())
+        if step is not plan['posts'][-1]:
+            time.sleep(1.1)
+    delivery.update(status='sent',sent_at=dt.datetime.now(dt.timezone.utc).isoformat())
     save(record_path,record)
-    print('Published album to',config['channel'],'message IDs:',record['telegram']['message_ids'])
+    print('Published four posts to',config['channel'],'message IDs:',delivery['message_ids'])
 
 def main():
     parser = argparse.ArgumentParser()

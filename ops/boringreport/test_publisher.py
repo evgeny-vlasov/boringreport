@@ -6,27 +6,85 @@ from unittest.mock import patch
 import publisher as p
 
 class PublisherTest(unittest.TestCase):
-    def test_album_success_and_uncertain_timeout_are_recorded(self):
-        for fail in [False,True]:
-            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                output = root/'output/2026-11-03'
-                output.mkdir(parents=True)
-                for lang in ['ru','en']:
-                    (output/f'boring-report-{lang}.png').write_bytes(b'\x89PNG\r\n\x1a\n' + bytes(16))
-                config = {'channel':'@dots_and_lines','channel_id':-1001,'enabled':True,'mode':'auto'}
-                record = {'articles':{},'preview':{'caption_ru':'RU','caption_en':'EN'}}
-                messages = [{'message_id':11,'chat':{'id':-1001}},{'message_id':12,'chat':{'id':-1001}}]
-                with patch.object(p,'ROOT',root),patch.object(p,'STATE',root),patch.object(p,'prepare',return_value=record),patch.object(p,'check_bot',return_value=({'id':7},{'id':-1001})),patch.object(p,'telegram',side_effect=p.UncertainRequest('timeout') if fail else None,return_value=messages) as send:
-                    if fail:
-                        with self.assertRaises(p.UncertainRequest):
-                            p.publish('2026-11-03',config,scheduled=True)
-                    else:
-                        p.publish('2026-11-03',config,scheduled=True)
-                    self.assertEqual(send.call_args.args[0],'sendMediaGroup')
-                    self.assertEqual(set(send.call_args.args[2]),{'photo_ru','photo_en'})
-                saved = json.loads((root/'2026-11-03.publication.json').read_text())
-                self.assertEqual(saved['telegram']['status'],'uncertain' if fail else 'sent')
+    def publication_fixture(self,root):
+        output = root/'output/2026-11-03'
+        output.mkdir(parents=True)
+        for lang in ['ru','en']:
+            (output/f'boring-report-{lang}.png').write_bytes(b'\x89PNG\r\n\x1a\n' + bytes(16))
+        config = {'channel':'@dots_and_lines','channel_id':-1001,'enabled':True,'mode':'auto'}
+        record = {'articles':{'ru':{'url':'https://telegra.ph/RU'},'en':{'url':'https://telegra.ph/EN'}}}
+        data = {'issue_id':'2026-11-03','issue_number':5}
+        record['preview'] = p.preview(data,record,'<p><strong>Summary</strong><br>Text &amp; <a href="https://example.com">source</a>.</p>')
+        def prepare(issue):
+            state = root/f'{issue}.publication.json'
+            return json.loads(state.read_text()) if state.exists() else record
+        return config,prepare
+
+    def response(self,message_id):
+        return {'message_id':message_id,'chat':{'id':-1001}}
+
+    def test_four_posts_in_order_with_only_ru_image(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config,prepare = self.publication_fixture(root)
+            with patch.object(p,'ROOT',root),patch.object(p,'STATE',root),patch.object(p,'prepare',side_effect=prepare),patch.object(p,'check_bot',return_value=({'id':7},{'id':-1001})),patch.object(p.time,'sleep'),patch.object(p,'telegram',side_effect=[self.response(n) for n in [11,12,13,14]]) as send:
+                p.publish('2026-11-03',config,scheduled=True)
+                self.assertEqual([call.args[0] for call in send.call_args_list],['sendPhoto','sendMessage','sendMessage','sendMessage'])
+                calls = send.call_args_list
+                self.assertEqual(set(calls[0].args[2]),{'photo'})
+                self.assertEqual(calls[0].args[2]['photo'].name,'boring-report-ru.png')
+                self.assertEqual(calls[0].args[1]['caption'],'Boring Report №05 — 03.11.2026')
+                self.assertEqual(calls[1].args[1]['text'],'<strong>Summary</strong>\nText &amp; <a href="https://example.com">source</a>.')
+                for call in calls[1:]:
+                    self.assertIsNone(call.args[2])
+                    self.assertTrue(call.args[1]['link_preview_options']['is_disabled'])
+                self.assertIn('<b><a href="https://telegra.ph/RU">',calls[2].args[1]['text'])
+                self.assertIn('<b><a href="https://telegra.ph/EN">',calls[3].args[1]['text'])
+                p.publish('2026-11-03',config,scheduled=True)
+                self.assertEqual(send.call_count,4)
+            state = json.loads((root/'2026-11-03.publication.json').read_text())['telegram']
+            self.assertEqual(state['status'],'sent')
+            self.assertEqual(state['message_ids'],[11,12,13,14])
+
+    def test_definitive_rejection_resumes_without_repeating_photo(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config,prepare = self.publication_fixture(root)
+            responses = [self.response(11),p.APIError('rate limit'),self.response(12),self.response(13),self.response(14)]
+            with patch.object(p,'ROOT',root),patch.object(p,'STATE',root),patch.object(p,'prepare',side_effect=prepare),patch.object(p,'check_bot',return_value=({'id':7},{'id':-1001})),patch.object(p.time,'sleep'),patch.object(p,'telegram',side_effect=responses) as send:
+                with self.assertRaises(p.APIError):
+                    p.publish('2026-11-03',config,scheduled=True)
+                p.publish('2026-11-03',config,scheduled=True)
+                self.assertEqual([c.args[0] for c in send.call_args_list].count('sendPhoto'),1)
+            state = json.loads((root/'2026-11-03.publication.json').read_text())['telegram']
+            self.assertEqual(state['message_ids'],[11,12,13,14])
+
+    def test_uncertain_second_post_blocks_blind_retries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config,prepare = self.publication_fixture(root)
+            with patch.object(p,'ROOT',root),patch.object(p,'STATE',root),patch.object(p,'prepare',side_effect=prepare),patch.object(p,'check_bot',return_value=({'id':7},{'id':-1001})),patch.object(p.time,'sleep'),patch.object(p,'telegram',side_effect=[self.response(11),p.UncertainRequest('timeout')]) as send:
+                with self.assertRaises(p.UncertainRequest):
+                    p.publish('2026-11-03',config,scheduled=True)
+                with self.assertRaises(p.UncertainRequest):
+                    p.publish('2026-11-03',config,scheduled=True)
+                self.assertEqual(send.call_count,2)
+            state = json.loads((root/'2026-11-03.publication.json').read_text())['telegram']
+            self.assertEqual(state['posts']['ru_image']['message_id'],11)
+            self.assertEqual(state['posts']['ru_message']['status'],'uncertain')
+
+    def test_oversized_second_post_is_not_truncated_or_split(self):
+        record = {'articles':{'ru':{'url':'https://telegra.ph/RU'},'en':{'url':'https://telegra.ph/EN'}}}
+        with self.assertRaises(ValueError):
+            p.preview({'issue_id':'2026-11-03','issue_number':5},record,'<p>'+('x'*4097)+'</p>')
+
+    def test_owner_removed_batch_stays_suppressed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            p.save(root/'2026-11-03.publication.json',{'telegram':{'status':'sent','removed_by_owner_request':True,'message_ids':[2113,2114]}})
+            with patch.object(p,'STATE',root),patch.object(p,'telegram') as send:
+                p.publish('2026-11-03',{'channel':'@dots_and_lines'})
+                send.assert_not_called()
 
     def test_converter_preserves_text_and_links_without_scripts(self):
         nodes = p.article_nodes('<article><h1>Title</h1><p>A <strong>claim</strong> &amp; <a href="https://example.com/source">source</a>.</p><script>secret()</script><style>bad</style><p><a href="javascript:alert(1)">unsafe link</a></p></article>','https://example.com/plot.png','en')
