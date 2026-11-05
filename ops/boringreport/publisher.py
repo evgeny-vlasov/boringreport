@@ -299,7 +299,7 @@ def preview(data,record,source):
     def text_post(key,text):
         if visible_length(text)>4096:
             raise ValueError(f'{key} exceeds Telegram\'s single-message limit; shorten its source before publishing.')
-        return {'key':key,'method':'sendMessage','data':{'text':text,'parse_mode':'HTML','link_preview_options':{'is_disabled':True}}}
+        return {'key':key,'method':'sendMessage','data':{'text':text,'parse_mode':'HTML','link_preview_options':{'is_disabled':False}}}
     return {'format':POST_FORMAT,'posts':[
         {'key':'ru_image','method':'sendPhoto','data':{'caption':title_ru},'files':{'photo':f'output/{data["issue_id"]}/boring-report-ru.png'}},
         text_post('ru_message',message),

@@ -9,7 +9,7 @@ The production report pipeline runs on the VPS, independently of the laptop and 
 * Run state and accepted Gmail message IDs: `~/.local/state/boringreport/`.
 * Time zone: `America/Edmonton` (Calgary local civil time).
 
-On Tuesdays, `boringreport-prepare.timer` starts research at 02:00 and retries at 03:00. `boringreport-deliver.timer` attempts delivery at 04:00, 05:00, and 06:00. Delivery retries preparation if no validated issue is ready. A report is sent only after R validation and four-file output checks succeed. Accepted Gmail message IDs are saved before Git archiving so subsequent normal retries do not send the same issue again. An interrupted request whose outcome is unknown can still produce a duplicate; inspect Gmail before manually clearing delivery state.
+On Tuesdays, `boringreport-prepare.timer` starts research at 08:00 and retries at 09:00. `boringreport-deliver.timer` attempts delivery at 10:00, 11:00, and 12:00. Delivery retries preparation if no validated issue is ready. A report is sent only after R validation and four-file output checks succeed. Accepted Gmail message IDs are saved before Git archiving so subsequent normal retries do not send the same issue again. An interrupted request whose outcome is unknown can still produce a duplicate; inspect Gmail before manually clearing delivery state.
 
 `loginctl enable-linger fluffy` is enabled, allowing the user services to run after logout and reboot. The timers are persistent and can catch up after downtime. Extended downtime, provider outages, usage limits, and revoked credentials can delay or prevent delivery; there is no guaranteed delivery SLA.
 

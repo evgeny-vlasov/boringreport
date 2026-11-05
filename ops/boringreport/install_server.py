@@ -10,7 +10,7 @@ for directory in [bin_dir, units, config]:
     directory.mkdir(parents=True, exist_ok=True)
 config.chmod(0o700)
 shutil.copyfile('/tmp/boringreport-server-runner.py', bin_dir / 'runner.py')
-for action, hours in [('prepare','02,03'), ('deliver','04,05,06')]:
+for action, hours in [('prepare','08,09'), ('deliver','10,11,12')]:
     name = f'boringreport-{action}'
     (units / f'{name}.service').write_text(f'''[Unit]
 Description=Boring Report {action}

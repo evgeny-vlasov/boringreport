@@ -73,7 +73,7 @@ def execute(args):
         message = EmailMessage()
         message['From'] = message['To'] = 'vlasov.ca@gmail.com'
         message['Subject'] = f'Boring Report needs attention — {issue}'
-        message.set_content(f'The {args.unit} job on happys failed for issue {issue}.\n\nPreparation runs Tuesday at 2 and 3 a.m.; delivery is attempted at 4, 5 and 6 a.m. Calgary local time. A later scheduled attempt may recover the issue.\n\nDetails are in the server journal: journalctl --user -u {args.unit}\n\nNo report is marked delivered until Gmail returns a message ID. If the failure involves Gmail authorization, this email notification may also be unavailable.')
+        message.set_content(f'The {args.unit} job on happys failed for issue {issue}.\n\nPreparation runs Tuesday at 8 and 9 a.m.; delivery is attempted at 10 a.m., 11 a.m. and noon Calgary local time. A later scheduled attempt may recover the issue.\n\nDetails are in the server journal: journalctl --user -u {args.unit}\n\nNo report is marked delivered until Gmail returns a message ID. If the failure involves Gmail authorization, this email notification may also be unavailable.')
         result = send_message(message)
         print('Failure notification accepted by Gmail:', result.get('id'))
         return

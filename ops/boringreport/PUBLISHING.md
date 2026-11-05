@@ -9,7 +9,7 @@ After sending email and pushing the issue archive, `server_runner.py` calls `pub
 3. A bold linked report heading for the Russian Telegraph article, with a short Russian language label.
 4. A bold linked report heading for the English Telegraph article, with a short English language label.
 
-All text posts disable link previews. The English image is used only inside the English Telegraph article and is never uploaded to the channel. No new channel messages are sent when generating a preview with `prepare`.
+All text posts enable link previews. The English image is never uploaded as a separate channel photo, but it may appear in the automatic preview of the English article. No new channel messages are sent when generating a preview with `prepare`.
 
 The images are ordinary R-generated PNGs. Telegraph embeds immutable, commit-pinned image URLs from the existing public GitHub report archive. The publisher checks that each public image is byte-identical to its local archived render. Telegram receives the Russian PNG directly through multipart upload, so the channel image does not depend on an external URL fetch. Telegram may recompress photo previews; the original PNG is available from the article image URL. GitHub raw asset availability and rate limits remain an external dependency for article images.
 
@@ -57,4 +57,4 @@ python3 ops/boringreport/test_publisher.py
 python3 ops/boringreport/test_runner.py
 ```
 
-Tests cover article sanitization, preservation of source text and links, harmless Telegraph-added markup, destination and permission checks, exact four-post order, Russian-only image upload, titled article links, disabled link previews, length checks, resuming a rejected post without duplicates, and suppression of blind retries after uncertain outcomes. Live preparation retrieves both saved article contents and checks their semantic content against the source.
+Tests cover article sanitization, preservation of source text and links, harmless Telegraph-added markup, destination and permission checks, exact four-post order, Russian-only image upload, titled article links, enabled link previews, length checks, resuming a rejected post without duplicates, and suppression of blind retries after uncertain outcomes. Live preparation retrieves both saved article contents and checks their semantic content against the source.

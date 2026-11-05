@@ -37,7 +37,7 @@ class PublisherTest(unittest.TestCase):
                 self.assertEqual(calls[1].args[1]['text'],'<strong>Summary</strong>\nText &amp; <a href="https://example.com">source</a>.')
                 for call in calls[1:]:
                     self.assertIsNone(call.args[2])
-                    self.assertTrue(call.args[1]['link_preview_options']['is_disabled'])
+                    self.assertFalse(call.args[1]['link_preview_options']['is_disabled'])
                 self.assertIn('<b><a href="https://telegra.ph/RU">',calls[2].args[1]['text'])
                 self.assertIn('<b><a href="https://telegra.ph/EN">',calls[3].args[1]['text'])
                 p.publish('2026-11-03',config,scheduled=True)
