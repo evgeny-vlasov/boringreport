@@ -141,6 +141,10 @@ def execute(args):
         elif changed != 0:
             raise RuntimeError('Could not inspect staged archive')
         run('git','push','origin','main')
+        publishing = CONFIG.with_name('publishing.json')
+        if publishing.exists() and json.loads(publishing.read_text()).get('enabled'):
+            run('python3', str(pathlib.Path.home() / '.local/lib/boringreport/publisher.py'),
+                'publish', '--issue', issue, '--scheduled')
 
 if __name__ == '__main__':
     main()
